@@ -64,7 +64,6 @@ fi
 
 # Mali Power Policy
 if [ -d "$MALI_PATH" ]; then
-    write "$MALI_PATH/power_policy" "coarse_demand"
     write "$MALI_PATH/dvfs_enable" "1"
 fi
 
@@ -83,8 +82,6 @@ fi
 if [ -d "$GED_PATH" ]; then
 
     # Activate
-    write "$GED_PATH/enable_gpu_boost" "1"
-    write "$GED_PATH/boost_gpu_enable" "1"
     write "$GED_PATH/ged_smart_boost" "1"
     write "$GED_PATH/gpu_dvfs_enable" "1"
     write "$GED_PATH/enable_game_self_frc_detect" "0"
@@ -105,7 +102,7 @@ PPM_PATH="/proc/ppm"
 
 if [ -d "/proc/ppm" ]; then
     write "/proc/ppm/enabled" "1"
-    write "/proc/ppm/policy/user_limit" "1" 
+    write "/proc/ppm/policy/user_limit" "0" 
 fi
 
 echo "PPM Configured." >> "$LOG_FILE"
@@ -122,12 +119,12 @@ for queue in /sys/block/*/queue; do
     SELECTED=""
 
     # b. Priority Logic
-    if echo "$AVAILABLE" | grep -q "mq-deadline"; then
+    if echo "$AVAILABLE" | grep -q "kyber"; then
+        SELECTED="kyber"
+    elif echo "$AVAILABLE" | grep -q "mq-deadline"; then
         SELECTED="mq-deadline"
     elif echo "$AVAILABLE" | grep -q "deadline"; then
         SELECTED="deadline"
-    elif echo "$AVAILABLE" | grep -q "kyber"; then
-        SELECTED="kyber"
     elif echo "$AVAILABLE" | grep -q "noop"; then
         SELECTED="noop"
     else
