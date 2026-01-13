@@ -722,4 +722,54 @@ cmd appops set eu.kanade.tachiyomi.extension.id.westmanga 63 deny
 cmd appops set com.supercell.clashroyale 40 deny
 cmd appops set com.supercell.clashroyale 63 deny
 
+pm disable com.facebook.katana/com.facebook.analytics2.logger.GooglePlayUploadService
+pm disable com.facebook.katana/com.facebook.audiencenetwork.AudienceNetworkService
+pm disable com.facebook.katana/com.facebook.adinterfaces.service.BoostLiveService
+pm disable com.facebook.katana/com.facebook.feed.platformads.AppInstallReceiver
+pm disable com.facebook.katana/com.facebook.googleplay.GooglePlayInstallReferrerReceiver
+pm disable com.facebook.katana/.provider.AttributionIdProvider
+pm disable com.facebook.katana/.provider.InstallReferrerProvider
+pm disable com.facebook.katana/com.facebook.oxygen.preloads.integration.dogfooding.AppManagerSsoProvider
+pm disable com.facebook.katana/com.facebook.oxygen.preloads.integration.sso.PostInstallSsoReceiver
+pm disable com.facebook.katana/com.facebook.oxygen.preloads.sdk.firstparty.managedappcache.IsManagedAppReceiver
+pm disable com.facebook.katana/com.facebook.bugreporter.core.scheduler.GCMBugReportService
+pm disable com.facebook.katana/com.facebook.bugreporter.core.scheduler.AlarmsBroadcastReceiver
+pm disable com.facebook.katana/com.facebook.errorreporting.lacrima.detector.broadcast.ProtectedLockScreenBroadcastReceiver
+pm disable com.facebook.katana/com.facebook.errorreporting.lacrima.detector.broadcast.PublicLockScreenBroadcastReceiver
+pm disable com.facebook.katana/com.facebook.errorreporting.lacrima.detector.broadcast.SecureShutdownBootBroadcastReceiver
+pm disable com.facebook.katana/com.facebook.abtest.qe.db.QuickExperimentContentProvider
+pm disable com.facebook.katana/com.facebook.rti.orca.UpdateQeBroadcastReceiver
+pm disable com.facebook.katana/com.facebook.wearlistener.DataLayerListenerService
+pm disable com.facebook.katana/com.facebook.fbpay.w3c.ipc.FBPaymentServiceImpl
+pm disable com.facebook.katana/com.facebook.fbpay.w3c.views.PaymentActivity
+pm disable com.facebook.katana/com.facebook.adinterfaces.AdInterfacesObjectiveActivity
+pm disable com.facebook.katana/com.facebook.conditionalworker.GooglePlayConditionalWorkerService
+pm disable com.facebook.katana/com.facebook.conditionalworker.ConditionalWorkerServiceReceiver
+pm disable com.facebook.katana/com.facebook.languages.switcher.nonworkactivity.LanguageSwitchPromotionActivity
+pm disable com.facebook.katana/com.facebook.deeplinking.aliasactivity.OpcAcceleratorOnboardingAliasActivity
+pm disable com.facebook.katana/com.facebook.contacts.data.FbContactsContentProvider
+pm disable com.facebook.katana/com.facebook.contacts.provider.ContactsConnectionsProvider
+pm disable com.facebook.katana/com.facebook.contacts.service.ContactLocaleChangeReceiver
+pm disable com.facebook.katana/com.facebook.battery.monitor.ContinuousBatteryMonitorService\$BroadcastReceiver
+pm disable com.facebook.katana/com.facebook.ppml.receiver.ReceiverService
+pm disable com.facebook.katana/com.facebook.games.gamingservices.deeplink.GamingServicesDeeplinkActivity
+pm disable com.facebook.katana/com.facebook.huddle.notification.speakernotification.impl.HuddleLiveSessionNotificationService
+pm disable com.facebook.katana/com.facebook.facecast.broadcast.notifications.LiveAudioRoomV2NotificationService
+pm disable com.facebook.katana/com.facebook.notifications.appwidget.MediumNotificationsWidgetProvider
+pm disable com.facebook.katana/com.facebook.notifications.appwidget.SmallNotificationsWidgetProvider
+pm disable com.facebook.katana/com.facebook.notifications.appwidget.receiver.NotificationsWidgetAppUpgradeReceiver
+pm disable com.facebook.katana/com.facebook.video.watchandgo.service.WatchAndGoService
+pm disable com.facebook.katana/com.facebook.video.watchandgo.service.UnifiedMiniPlayerService
+pm disable com.facebook.katana/com.facebook.smartglasses.intenthandler.OptInActivity
+pm disable com.facebook.katana/com.facebook.wearlistener.DataLayerListenerService
+pm disable com.facebook.katana/androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryChargingProxy
+pm disable com.facebook.katana/androidx.work.impl.background.systemalarm.ConstraintProxy$NetworkStateProxy
+pm disable com.facebook.katana/com.facebook.photos.upload.receiver.ConnectivityChangeReceiver
+pm disable com.facebook.katana/com.facebook.conditionalworker.GooglePlayConditionalWorkerService
+pm disable com.facebook.katana/com.facebook.media.local.UpdateLocalMediaStoreGcmTaskService
+cmd appops set com.facebook.katana 40 deny
+cmd appops set com.facebook.katana 63 deny
+
 echo "Rules Applied." >> "$LOG_FILE"
+
+exit 0

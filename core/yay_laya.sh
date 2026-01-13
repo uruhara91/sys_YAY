@@ -23,3 +23,5 @@ setprop persist.sys.laya.devide.cpufreq lowest
 /data/adb/modules/sys_YAY/laya.battmon-service &
 
 echo "Laya Applied." >> "$LOG_FILE"
+
+exit 0
