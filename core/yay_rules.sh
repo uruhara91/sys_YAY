@@ -38,4 +38,5 @@ else
 fi
 
 log_msg "Rules Applied."
+
 exit 0
