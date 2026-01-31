@@ -6,4 +6,5 @@ if [ -z "$MMRL" ] && [ ! -z "$MAGISKTMP" ]; then
 		exit 0
 	}
 fi
+
 exit 0

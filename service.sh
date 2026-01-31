@@ -2,7 +2,7 @@
 MODDIR=${0%/*}
 
 until [ "$(getprop sys.boot_completed)" = "1" ] && [ -f /data/system/packages.list ]; do
-	sleep 1
+	sleep 10
 done
 
 if [ -f "$MODDIR/core/yay_service.sh" ]; then
@@ -22,3 +22,5 @@ for apk in $packages; do
 		echo "sys_YAY: blocked $apk with uid: $uid" >>/dev/kmsg
 	}
 done
+
+exit 0
