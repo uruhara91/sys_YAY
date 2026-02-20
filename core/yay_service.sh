@@ -64,8 +64,8 @@ for queue in /sys/block/*/queue; do
             ;;
     esac
 
-    echo "0" > "$queue/iostats"
-    echo "0" > "$queue/add_random"
+    write "$queue/iostats" "0"
+    write "$queue/add_random" "0"
 done
 
 echo "I/O Sched Configured." >> "$LOG_FILE"
@@ -91,8 +91,8 @@ echo "VM Configured." >> "$LOG_FILE"
 # === 3.5. UNDERVOLT ===
 
 if [ -f "/proc/eem/EEM_DET_L/eem_offset" ]; then
-    echo "-6" > /proc/eem/EEM_DET_L/eem_offset
-    echo "-3" > /proc/eem/EEM_DET_B/eem_offset
+    write "/proc/eem/EEM_DET_L/eem_offset" "-6"
+    write "/proc/eem/EEM_DET_B/eem_offset" "-3"
 
     echo "Undervolt applied via EEM." >> "$LOG_FILE"
 else

@@ -6,8 +6,6 @@ LIST_APPOPS="$CORE_DIR/appops.txt"
 
 HASH_FILE="$CORE_DIR/rules_hash.txt"
 
-mkdir -p "$CONFIG_DIR"
-
 # Fungsi utama untuk mengeksekusi rules
 apply_rules() {
     # COMPONENTS
