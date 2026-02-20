@@ -27,10 +27,10 @@ for path in \
 
     if [ -e "$path" ]; then
         case "$path" in
-            *printk) val="0 0 0 0" ;;
-            *devkmsg) val="off" ;;
-            *noirqdebug) val="1" ;;
-            *) val="0" ;;
+        *printk_devkmsg) val="off" ;;
+        *printk) val="0 0 0 0" ;;
+        *noirqdebug) val="1" ;;
+        *) val="0" ;;
         esac
         write "$path" "$val"
     fi

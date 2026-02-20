@@ -1,4 +1,3 @@
-com.android.stk/com.android.stk.StkMain
 com.android.vending/com.google.android.finsky.systemcomponentupdateui.common.SystemComponentUpdateActivity
 com.android.vending/com.google.android.finsky.systemupdate.receivers.RebootReadinessReceiver
 com.android.vending/com.google.android.finsky.systemupdate.receivers.UnattendedUpdatePreparedReceiver
