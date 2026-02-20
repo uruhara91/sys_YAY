@@ -47,22 +47,25 @@ for queue in /sys/block/*/queue; do
 
     [ ! -f "$SCHED" ] && continue
 
-    # Skip virtual devices
     case "$DEV_NAME" in
-        ram*|zram*|dm-*|loop*) continue ;;
+        ram*|zram*|dm-*) continue ;;
+        loop*)
+            grep -q "none" "$SCHED" && echo "none" > "$SCHED"
+            ;;
+        *)
+            AVAILABLE=$(cat "$SCHED")
+            if echo "$AVAILABLE" | grep -q "kyber"; then
+                echo "kyber" > "$SCHED"
+            elif echo "$AVAILABLE" | grep -q "mq-deadline"; then
+                echo "mq-deadline" > "$SCHED"
+            elif echo "$AVAILABLE" | grep -q "deadline"; then
+                echo "deadline" > "$SCHED"
+            fi
+            ;;
     esac
 
-    # Logic
-    AVAILABLE=$(cat "$SCHED")
-    if echo "$AVAILABLE" | grep -q "mq-deadline"; then
-        write "$SCHED" "mq-deadline"
-    elif echo "$AVAILABLE" | grep -q "deadline"; then
-        write "$SCHED" "deadline"
-    fi
-
-    # Optimization
-    write "$queue/iostats" "0"
-    write "$queue/add_random" "0"
+    echo "0" > "$queue/iostats"
+    echo "0" > "$queue/add_random"
 done
 
 echo "I/O Sched Configured." >> "$LOG_FILE"
@@ -84,6 +87,17 @@ if [ -d "/sys/block/zram0" ]; then
 fi
 
 echo "VM Configured." >> "$LOG_FILE"
+
+# === 3.5. UNDERVOLT ===
+
+if [ -f "/proc/eem/EEM_DET_L/eem_offset" ]; then
+    echo "-6" > /proc/eem/EEM_DET_L/eem_offset
+    echo "-3" > /proc/eem/EEM_DET_B/eem_offset
+
+    echo "Undervolt applied via EEM." >> "$LOG_FILE"
+else
+    echo "Undervolt interface not found." >> "$LOG_FILE"
+fi
 
 # === 4. FSTrim ===
 
@@ -110,9 +124,7 @@ echo "OTA freezed." >> "$LOG_FILE"
 
 CORE_DIR=$(dirname "$0")
 RULES="$CORE_DIR/yay_rules.sh"
-LAYA="$CORE_DIR/yay_laya.sh"
 GAME="$CORE_DIR/yay_game.sh"
-MON="$CORE_DIR/yay_mon"
 
 export LOG_FILE
 
@@ -120,19 +132,8 @@ if [ -f "$RULES" ]; then
     sh "$RULES" &
 fi
 
-if [ -f "$LAYA" ]; then
-    sh "$LAYA" &
-fi
-
 if [ -f "$GAME" ]; then
     sh "$GAME" &
-fi
-
-if [ -f "$MON" ]; then
-    chmod 0755 "$MON"
-    chown 0:0 "$MON"
-    pkill -f "yay_mon"
-    nohup "$MON" > /dev/null 2>&1 &
 fi
 
 echo "Chaining..." >> "$LOG_FILE"

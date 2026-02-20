@@ -330,6 +330,8 @@ com.hoffnung 40 ignore
 com.hoffnung 63 ignore
 com.infinix 40 ignore
 com.infinix 63 ignore
+com.kmplayer.d 40 ignore
+com.kmplayer.d 63 ignore
 com.mediatek.FrameworkResOverlayExt 40 ignore
 com.mediatek.FrameworkResOverlayExt 63 ignore
 com.mediatek.MtkSettingsResOverlay 40 ignore

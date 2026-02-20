@@ -1,7 +1,3 @@
-ui_print "- Extracting module files"
-unzip -p "$ZIPFILE" "laya-battery-monitor" > "$MODPATH/laya.battmon-service"
-chmod +x "$MODPATH/laya.battmon-service"
-
 ISOLATED="/data/adb/.config/sys_YAY/isolated.json"
 if [ ! -f "$ISOLATED" ]; then
   mkdir -p "$(dirname "$ISOLATED")"
