@@ -12,15 +12,25 @@ if [ -f "$MODDIR/core/yay_service.sh" ]; then
     sh "$MODDIR/core/yay_service.sh" &
 fi
 
-packages="$(sed 's|[]\"[]||g; s|,| |g' /data/adb/.config/sys_YAY/isolated.json)"
-for apk in $packages; do
-	uid="$(grep "^$apk" /data/system/packages.list | awk '{print $2; exit}')"
-	[ ! -z $uid ] && {
-		iptables -I OUTPUT -m owner --uid-owner $uid -j REJECT
-		ip6tables -I OUTPUT -m owner --uid-owner $uid -j REJECT
-		# debug
-		echo "sys_YAY: blocked $apk with uid: $uid" >>/dev/kmsg
-	}
-done
+JSON_FILE="/data/adb/.config/sys_YAY/isolated.json"
+
+if [ -f "$JSON_FILE" ]; then
+    packages="$(cat "$JSON_FILE" | tr -d '[]" ' | tr ',' ' ')"
+    
+    for apk in $packages; do
+        uid="$(grep "^$apk" /data/system/packages.list | awk '{print $2; exit}')"
+        
+        if [ ! -z "$uid" ]; then
+            iptables -C OUTPUT -m owner --uid-owner "$uid" -j REJECT 2>/dev/null || \
+                iptables -I OUTPUT -m owner --uid-owner "$uid" -j REJECT
+                
+            ip6tables -C OUTPUT -m owner --uid-owner "$uid" -j REJECT 2>/dev/null || \
+                ip6tables -I OUTPUT -m owner --uid-owner "$uid" -j REJECT
+                
+            # debug
+            echo "sys_YAY: blocked $apk with uid: $uid" >>/dev/kmsg
+        fi
+    done
+fi
 
 exit 0
