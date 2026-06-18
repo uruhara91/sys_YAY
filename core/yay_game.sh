@@ -46,17 +46,9 @@
 echo "Game Log Napped." >> "$LOG_FILE"
 
 # 1. Downscaler
-device_config put game_overlay com.garena.game.df mode=2,downscaleFactor=0.7,scalingMode=1
-device_config put game_overlay com.mobile.legends mode=2,downscaleFactor=0.7,scalingMode=1
-device_config put game_overlay com.voodoo.almanac mode=3,downscaleFactor=0.7,scalingMode=1
-
-# 2. Game Mode
-cmd game mode performance com.garena.game.df
-cmd game mode performance com.mobile.legends
-cmd game mode battery com.voodoo.almanac
-
-# 3. Lock
-device_config set_sync_disabled_for_tests persistent
+adb shell cmd game downscale 0.7 com.garena.game.df
+adb shell cmd game downscale 0.7 com.mobile.legends
+adb shell cmd game downscale 0.7 com.voodoo.almanac
 
 echo "Game Mode Configured." >> "$LOG_FILE"
 
