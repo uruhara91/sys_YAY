@@ -45,10 +45,10 @@
 
 echo "Game Log Napped." >> "$LOG_FILE"
 
-# 1. Downscaler
-adb shell cmd game downscale 0.7 com.garena.game.df
-adb shell cmd game downscale 0.7 com.mobile.legends
-adb shell cmd game downscale 0.7 com.voodoo.almanac
+# Downscaler
+#cmd game downscale 0.7 com.garena.game.df
+#cmd game downscale 0.7 com.mobile.legends
+#cmd game downscale 0.7 com.voodoo.almanac
 
 echo "Game Mode Configured." >> "$LOG_FILE"
 
