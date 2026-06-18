@@ -36,6 +36,7 @@ com.google.android.gms/com.google.android.gms.update.SystemUpdateService
 com.google.android.gms/com.google.android.gms.update.UpdateFromSdCardActivity
 com.google.android.gms/com.google.android.gms.update.UpdateFromSdCardService
 com.google.android.gms/com.google.android.gms.update.phone.PopupDialog
+com.google.android.ims/androidx.work.impl.diagnostics.DiagnosticsReceiver
 com.google.android.inputmethod.latin/androidx.work.impl.diagnostics.DiagnosticsReceiver
 com.google.android.keep/androidx.work.impl.diagnostics.DiagnosticsReceiver
 com.google.android.youtube/androidx.work.impl.diagnostics.DiagnosticsReceiver
