@@ -3,10 +3,9 @@
 #include <dlfcn.h>
 #include <jni.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/system_properties.h>
-
-#include <vector>
 
 #include "binder.hpp"
 #include "zygisk.hpp"
@@ -15,6 +14,9 @@
     __android_log_print(ANDROID_LOG_INFO, "SystemUIMediaFix", "[%d] " fmt, __LINE__, ##__VA_ARGS__)
 #define LOGE(fmt, ...) \
     __android_log_print(ANDROID_LOG_ERROR, "SystemUIMediaFix", "[%d] " fmt, __LINE__, ##__VA_ARGS__)
+
+#define LIKELY(value) __builtin_expect(!!(value), 1)
+#define UNLIKELY(value) __builtin_expect(!!(value), 0)
 
 namespace {
 
@@ -27,193 +29,170 @@ constexpr char16_t kSessionControllerDescriptor[] =
 constexpr size_t kSessionControllerDescriptorLength =
     (sizeof(kSessionControllerDescriptor) / sizeof(kSessionControllerDescriptor[0])) - 1;
 
+// Android 12 native Binder request header: strict-mode policy, work-source UID,
+// and vendor header. The target is fingerprint-locked, so keeping this constant
+// removes a branch from every matching transaction.
+constexpr size_t kBinderHeaderLength = 3 * sizeof(uint32_t);
+constexpr size_t kDescriptorOffset = kBinderHeaderLength + sizeof(int32_t);
+constexpr size_t kDescriptorStorageBytes =
+    (kSessionControllerDescriptorLength + 1) * sizeof(char16_t);
+constexpr size_t kMinimumMetadataRequestSize =
+    kDescriptorOffset + kDescriptorStorageBytes;
+constexpr size_t kNullReplySize = 2 * sizeof(int32_t);
+constexpr size_t kMaximumGeneratedReplySize = 64 * 1024;
+
 using TransactFn = int (*)(void*, int32_t, uint32_t, void*, void*, uint32_t);
 using ParcelSetDataFn = int32_t (*)(void*, const uint8_t*, size_t);
 using ParcelSetDataPositionFn = void (*)(const void*, size_t);
 
-int g_sdk = 0;
 uint32_t g_get_metadata_code = 0;
 TransactFn g_transact_original = nullptr;
 ParcelSetDataFn g_parcel_set_data = nullptr;
 ParcelSetDataPositionFn g_parcel_set_data_position = nullptr;
-std::vector<uint8_t> g_empty_metadata_reply;
+uint8_t* g_empty_metadata_reply = nullptr;
+size_t g_empty_metadata_reply_size = 0;
+uint32_t g_patch_log_once = 0;
 
 bool clearJniException(JNIEnv* env, const char* operation) {
     if (!env->ExceptionCheck()) return false;
     LOGE("JNI exception while %s", operation);
-    env->ExceptionDescribe();
     env->ExceptionClear();
     return true;
 }
 
 bool buildEmptyMetadataReply(JNIEnv* env) {
+    if (env->PushLocalFrame(16) < 0) {
+        clearJniException(env, "creating local JNI frame");
+        return false;
+    }
+
+    auto finish = [env](bool result) {
+        env->PopLocalFrame(nullptr);
+        return result;
+    };
+
     jclass parcel_class = env->FindClass("android/os/Parcel");
-    if (parcel_class == nullptr || clearJniException(env, "finding Parcel")) return false;
+    jclass builder_class = env->FindClass("android/media/MediaMetadata$Builder");
+    if (parcel_class == nullptr || builder_class == nullptr ||
+        clearJniException(env, "finding framework classes")) {
+        return finish(false);
+    }
 
     jmethodID obtain =
         env->GetStaticMethodID(parcel_class, "obtain", "()Landroid/os/Parcel;");
-    jmethodID write_no_exception = env->GetMethodID(parcel_class, "writeNoException", "()V");
+    jmethodID write_no_exception =
+        env->GetMethodID(parcel_class, "writeNoException", "()V");
+    jmethodID write_typed_object = env->GetMethodID(
+        parcel_class, "writeTypedObject", "(Landroid/os/Parcelable;I)V");
     jmethodID marshall = env->GetMethodID(parcel_class, "marshall", "()[B");
     jmethodID recycle = env->GetMethodID(parcel_class, "recycle", "()V");
-    if (obtain == nullptr || write_no_exception == nullptr || marshall == nullptr ||
-        recycle == nullptr || clearJniException(env, "resolving Parcel methods")) {
-        env->DeleteLocalRef(parcel_class);
-        return false;
+    jmethodID builder_constructor =
+        env->GetMethodID(builder_class, "<init>", "()V");
+    jmethodID build = env->GetMethodID(
+        builder_class, "build", "()Landroid/media/MediaMetadata;");
+
+    if (obtain == nullptr || write_no_exception == nullptr ||
+        write_typed_object == nullptr || marshall == nullptr || recycle == nullptr ||
+        builder_constructor == nullptr || build == nullptr ||
+        clearJniException(env, "resolving framework methods")) {
+        return finish(false);
     }
 
     jobject parcel = env->CallStaticObjectMethod(parcel_class, obtain);
-    if (parcel == nullptr || clearJniException(env, "obtaining Parcel")) {
-        env->DeleteLocalRef(parcel_class);
-        return false;
+    jobject builder = env->NewObject(builder_class, builder_constructor);
+    jobject metadata = builder == nullptr ? nullptr : env->CallObjectMethod(builder, build);
+    if (parcel == nullptr || builder == nullptr || metadata == nullptr ||
+        clearJniException(env, "creating replacement metadata")) {
+        return finish(false);
     }
 
     env->CallVoidMethod(parcel, write_no_exception);
-    if (clearJniException(env, "writing no-exception header")) {
+    env->CallVoidMethod(parcel, write_typed_object, metadata, 1);
+    if (clearJniException(env, "serializing replacement metadata")) {
         env->CallVoidMethod(parcel, recycle);
-        env->DeleteLocalRef(parcel);
-        env->DeleteLocalRef(parcel_class);
-        return false;
-    }
-
-    jclass builder_class = env->FindClass("android/media/MediaMetadata$Builder");
-    if (builder_class == nullptr || clearJniException(env, "finding MediaMetadata.Builder")) {
-        env->CallVoidMethod(parcel, recycle);
-        env->DeleteLocalRef(parcel);
-        env->DeleteLocalRef(parcel_class);
-        return false;
-    }
-
-    jmethodID builder_constructor = env->GetMethodID(builder_class, "<init>", "()V");
-    jmethodID build = env->GetMethodID(
-        builder_class, "build", "()Landroid/media/MediaMetadata;");
-    if (builder_constructor == nullptr || build == nullptr ||
-        clearJniException(env, "resolving MediaMetadata.Builder methods")) {
-        env->DeleteLocalRef(builder_class);
-        env->CallVoidMethod(parcel, recycle);
-        env->DeleteLocalRef(parcel);
-        env->DeleteLocalRef(parcel_class);
-        return false;
-    }
-
-    jobject builder = env->NewObject(builder_class, builder_constructor);
-    jobject metadata = builder == nullptr ? nullptr : env->CallObjectMethod(builder, build);
-    if (builder == nullptr || metadata == nullptr ||
-        clearJniException(env, "building empty MediaMetadata")) {
-        if (metadata != nullptr) env->DeleteLocalRef(metadata);
-        if (builder != nullptr) env->DeleteLocalRef(builder);
-        env->DeleteLocalRef(builder_class);
-        env->CallVoidMethod(parcel, recycle);
-        env->DeleteLocalRef(parcel);
-        env->DeleteLocalRef(parcel_class);
-        return false;
-    }
-
-    // Android 12 AIDL encodes nullable Parcelable values through writeTypedObject().
-    // Use the platform implementation itself so the replacement reply follows the exact
-    // Parcel format expected by this firmware.
-    jmethodID write_typed_object = env->GetMethodID(
-        parcel_class, "writeTypedObject", "(Landroid/os/Parcelable;I)V");
-    if (write_typed_object != nullptr) {
-        env->CallVoidMethod(parcel, write_typed_object, metadata, 1);
-    } else {
-        env->ExceptionClear();
-        jmethodID write_int = env->GetMethodID(parcel_class, "writeInt", "(I)V");
-        jclass metadata_class = env->FindClass("android/media/MediaMetadata");
-        jmethodID write_to_parcel = metadata_class == nullptr
-            ? nullptr
-            : env->GetMethodID(
-                  metadata_class, "writeToParcel", "(Landroid/os/Parcel;I)V");
-        if (write_int == nullptr || metadata_class == nullptr || write_to_parcel == nullptr ||
-            clearJniException(env, "resolving Parcelable fallback")) {
-            if (metadata_class != nullptr) env->DeleteLocalRef(metadata_class);
-            env->DeleteLocalRef(metadata);
-            env->DeleteLocalRef(builder);
-            env->DeleteLocalRef(builder_class);
-            env->CallVoidMethod(parcel, recycle);
-            env->DeleteLocalRef(parcel);
-            env->DeleteLocalRef(parcel_class);
-            return false;
-        }
-        env->CallVoidMethod(parcel, write_int, 1);
-        env->CallVoidMethod(metadata, write_to_parcel, parcel, 1);
-        env->DeleteLocalRef(metadata_class);
-    }
-
-    if (clearJniException(env, "serializing empty MediaMetadata")) {
-        env->DeleteLocalRef(metadata);
-        env->DeleteLocalRef(builder);
-        env->DeleteLocalRef(builder_class);
-        env->CallVoidMethod(parcel, recycle);
-        env->DeleteLocalRef(parcel);
-        env->DeleteLocalRef(parcel_class);
-        return false;
+        clearJniException(env, "recycling failed Parcel");
+        return finish(false);
     }
 
     auto bytes = static_cast<jbyteArray>(env->CallObjectMethod(parcel, marshall));
     if (bytes == nullptr || clearJniException(env, "marshalling replacement reply")) {
-        env->DeleteLocalRef(metadata);
-        env->DeleteLocalRef(builder);
-        env->DeleteLocalRef(builder_class);
         env->CallVoidMethod(parcel, recycle);
-        env->DeleteLocalRef(parcel);
-        env->DeleteLocalRef(parcel_class);
-        return false;
+        clearJniException(env, "recycling failed Parcel");
+        return finish(false);
     }
 
     const jsize length = env->GetArrayLength(bytes);
-    if (length <= 8) {
-        LOGE("Replacement Parcel is unexpectedly small: %d", length);
-        env->DeleteLocalRef(bytes);
-        env->DeleteLocalRef(metadata);
-        env->DeleteLocalRef(builder);
-        env->DeleteLocalRef(builder_class);
+    if (length <= static_cast<jsize>(kNullReplySize) ||
+        length > static_cast<jsize>(kMaximumGeneratedReplySize)) {
+        LOGE("Unexpected replacement Parcel size: %d", length);
         env->CallVoidMethod(parcel, recycle);
-        env->DeleteLocalRef(parcel);
-        env->DeleteLocalRef(parcel_class);
-        return false;
+        clearJniException(env, "recycling invalid Parcel");
+        return finish(false);
     }
 
-    g_empty_metadata_reply.resize(static_cast<size_t>(length));
-    env->GetByteArrayRegion(bytes, 0, length,
-                            reinterpret_cast<jbyte*>(g_empty_metadata_reply.data()));
-    const bool copy_failed = clearJniException(env, "copying replacement Parcel");
+    auto* reply = static_cast<uint8_t*>(malloc(static_cast<size_t>(length)));
+    if (reply == nullptr) {
+        LOGE("Could not allocate %d bytes for replacement Parcel", length);
+        env->CallVoidMethod(parcel, recycle);
+        clearJniException(env, "recycling allocation-failed Parcel");
+        return finish(false);
+    }
+
+    env->GetByteArrayRegion(bytes, 0, length, reinterpret_cast<jbyte*>(reply));
+    if (clearJniException(env, "copying replacement Parcel")) {
+        free(reply);
+        env->CallVoidMethod(parcel, recycle);
+        clearJniException(env, "recycling copy-failed Parcel");
+        return finish(false);
+    }
+
+    int32_t exception_code = -1;
+    int32_t presence_marker = -1;
+    memcpy(&exception_code, reply, sizeof(exception_code));
+    memcpy(&presence_marker, reply + sizeof(exception_code), sizeof(presence_marker));
+    if (exception_code != 0 || presence_marker != 1) {
+        LOGE("Unexpected replacement Parcel header: exception=%d presence=%d",
+             exception_code, presence_marker);
+        free(reply);
+        env->CallVoidMethod(parcel, recycle);
+        clearJniException(env, "recycling header-invalid Parcel");
+        return finish(false);
+    }
 
     env->CallVoidMethod(parcel, recycle);
-    clearJniException(env, "recycling Parcel");
-    env->DeleteLocalRef(bytes);
-    env->DeleteLocalRef(metadata);
-    env->DeleteLocalRef(builder);
-    env->DeleteLocalRef(builder_class);
-    env->DeleteLocalRef(parcel);
-    env->DeleteLocalRef(parcel_class);
-
-    if (copy_failed) {
-        g_empty_metadata_reply.clear();
-        return false;
+    if (clearJniException(env, "recycling replacement Parcel")) {
+        free(reply);
+        return finish(false);
     }
 
-    LOGI("Prepared empty MediaMetadata reply (%zu bytes)", g_empty_metadata_reply.size());
-    return true;
+    g_empty_metadata_reply = reply;
+    g_empty_metadata_reply_size = static_cast<size_t>(length);
+    LOGI("Prepared empty MediaMetadata reply (%zu bytes)", g_empty_metadata_reply_size);
+    return finish(true);
 }
 
-void* resolveSymbol(const char* const* names, size_t count) {
+void* resolveAnySymbol(void* handle, const char* const* names, size_t count) {
     for (size_t i = 0; i < count; ++i) {
-        if (void* symbol = dlsym(RTLD_DEFAULT, names[i]); symbol != nullptr) return symbol;
+        if (void* symbol = dlsym(RTLD_DEFAULT, names[i]); symbol != nullptr) {
+            return symbol;
+        }
     }
-
-    void* handle = dlopen("libbinder.so", RTLD_NOW);
-    if (handle == nullptr) {
-        LOGE("Could not open libbinder.so: %s", dlerror());
-        return nullptr;
-    }
-
+    if (handle == nullptr) return nullptr;
     for (size_t i = 0; i < count; ++i) {
-        if (void* symbol = dlsym(handle, names[i]); symbol != nullptr) return symbol;
+        if (void* symbol = dlsym(handle, names[i]); symbol != nullptr) {
+            return symbol;
+        }
     }
     return nullptr;
 }
 
 bool resolveParcelFunctions() {
+    void* handle = dlopen("libbinder.so", RTLD_NOW | RTLD_LOCAL);
+    if (handle == nullptr) {
+        LOGE("Could not open libbinder.so: %s", dlerror());
+        return false;
+    }
+
 #if defined(__LP64__)
     const char* set_data_symbols[] = {
         "_ZN7android6Parcel7setDataEPKhm",
@@ -234,10 +213,12 @@ bool resolveParcelFunctions() {
     };
 #endif
 
-    g_parcel_set_data = reinterpret_cast<ParcelSetDataFn>(
-        resolveSymbol(set_data_symbols, sizeof(set_data_symbols) / sizeof(set_data_symbols[0])));
-    g_parcel_set_data_position = reinterpret_cast<ParcelSetDataPositionFn>(resolveSymbol(
-        set_position_symbols, sizeof(set_position_symbols) / sizeof(set_position_symbols[0])));
+    g_parcel_set_data = reinterpret_cast<ParcelSetDataFn>(resolveAnySymbol(
+        handle, set_data_symbols, sizeof(set_data_symbols) / sizeof(set_data_symbols[0])));
+    g_parcel_set_data_position = reinterpret_cast<ParcelSetDataPositionFn>(resolveAnySymbol(
+        handle, set_position_symbols,
+        sizeof(set_position_symbols) / sizeof(set_position_symbols[0])));
+    dlclose(handle);
 
     if (g_parcel_set_data == nullptr || g_parcel_set_data_position == nullptr) {
         LOGE("Could not resolve Parcel::setData/setDataPosition");
@@ -246,60 +227,74 @@ bool resolveParcelFunctions() {
     return true;
 }
 
-bool isGetMetadataRequest(const PParcel* request, uint32_t code) {
-    if (request == nullptr || request->data == nullptr || code != g_get_metadata_code) return false;
-
-    const size_t header_length = getBinderHeadersLen(g_sdk);
-    if (request->data_size < header_length + sizeof(int32_t)) return false;
-
-    int32_t descriptor_length = 0;
-    memcpy(&descriptor_length, request->data + header_length, sizeof(descriptor_length));
-    if (descriptor_length < 0 ||
-        static_cast<size_t>(descriptor_length) != kSessionControllerDescriptorLength) {
+inline bool isGetMetadataRequest(const PParcel* request, uint32_t code) {
+    if (LIKELY(code != g_get_metadata_code)) return false;
+    if (UNLIKELY(request == nullptr || request->data == nullptr ||
+                 request->data_size < kMinimumMetadataRequestSize)) {
         return false;
     }
 
-    const size_t descriptor_bytes =
-        (static_cast<size_t>(descriptor_length) + 1) * sizeof(char16_t);
-    const size_t descriptor_offset = header_length + sizeof(int32_t);
-    if (descriptor_offset + descriptor_bytes > request->data_size) return false;
+    int32_t descriptor_length = -1;
+    memcpy(&descriptor_length, request->data + kBinderHeaderLength,
+           sizeof(descriptor_length));
+    if (UNLIKELY(descriptor_length !=
+                 static_cast<int32_t>(kSessionControllerDescriptorLength))) {
+        return false;
+    }
 
-    return memcmp(request->data + descriptor_offset, kSessionControllerDescriptor,
-                  kSessionControllerDescriptorLength * sizeof(char16_t)) == 0;
+    const char* descriptor = request->data + kDescriptorOffset;
+    if (UNLIKELY(memcmp(descriptor, kSessionControllerDescriptor,
+                        kSessionControllerDescriptorLength * sizeof(char16_t)) != 0)) {
+        return false;
+    }
+
+    char16_t terminator = 1;
+    memcpy(&terminator,
+           descriptor + kSessionControllerDescriptorLength * sizeof(char16_t),
+           sizeof(terminator));
+    return terminator == u'\0';
 }
 
-bool isNullMetadataReply(const PParcel* reply) {
-    // Normal Android 12 AIDL response: writeNoException() + nullable object marker.
-    // A null MediaMetadata reply is therefore two zero int32 values.
-    if (reply == nullptr || reply->data == nullptr || reply->data_size != 2 * sizeof(int32_t)) {
+inline bool isNullMetadataReply(const PParcel* reply) {
+    if (UNLIKELY(reply == nullptr || reply->data == nullptr ||
+                 reply->data_size != kNullReplySize)) {
         return false;
     }
 
     int32_t exception_code = -1;
     int32_t presence_marker = -1;
     memcpy(&exception_code, reply->data, sizeof(exception_code));
-    memcpy(&presence_marker, reply->data + sizeof(exception_code), sizeof(presence_marker));
+    memcpy(&presence_marker, reply->data + sizeof(exception_code),
+           sizeof(presence_marker));
     return exception_code == 0 && presence_marker == 0;
 }
 
 int transactHook(void* self, int32_t handle, uint32_t code, void* request,
                  void* reply, uint32_t flags) {
-    const bool should_patch = isGetMetadataRequest(static_cast<PParcel*>(request), code);
+    const bool should_patch =
+        UNLIKELY(isGetMetadataRequest(static_cast<PParcel*>(request), code));
     const int result = g_transact_original(self, handle, code, request, reply, flags);
 
-    if (!should_patch || result != 0 || !isNullMetadataReply(static_cast<PParcel*>(reply))) {
+    if (LIKELY(!should_patch || result != 0)) return result;
+    if (LIKELY(!isNullMetadataReply(static_cast<PParcel*>(reply)))) return result;
+    if (UNLIKELY(g_empty_metadata_reply == nullptr || g_empty_metadata_reply_size == 0)) {
         return result;
     }
 
     const int32_t set_data_result = g_parcel_set_data(
-        reply, g_empty_metadata_reply.data(), g_empty_metadata_reply.size());
-    if (set_data_result != 0) {
+        reply, g_empty_metadata_reply, g_empty_metadata_reply_size);
+    if (UNLIKELY(set_data_result != 0)) {
         LOGE("Parcel::setData failed: %d", set_data_result);
         return result;
     }
 
     g_parcel_set_data_position(reply, 0);
-    LOGI("Replaced null MediaMetadata Binder reply");
+
+    // Keep release diagnostics while avoiding repeated log writes for players
+    // that transiently return null metadata many times.
+    if (__atomic_exchange_n(&g_patch_log_once, 1u, __ATOMIC_RELAXED) == 0) {
+        LOGI("Replaced null MediaMetadata Binder reply");
+    }
     return result;
 }
 
@@ -333,9 +328,8 @@ bool isSupportedBuild() {
 }
 
 bool run(zygisk::Api* api, JNIEnv* env) {
-    g_sdk = android_get_device_api_level();
     if (!isSupportedBuild()) {
-        LOGE("Unsupported build; refusing to hook (SDK %d)", g_sdk);
+        LOGE("Unsupported build; refusing to hook");
         return false;
     }
 
@@ -367,13 +361,13 @@ class SystemUIMediaFix final : public zygisk::ModuleBase {
     }
 
     void postAppSpecialize(const zygisk::AppSpecializeArgs* args) override {
-        if (args == nullptr || args->nice_name == nullptr) {
+        if (UNLIKELY(args == nullptr || args->nice_name == nullptr)) {
             api_->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
             return;
         }
 
         const char* process_name = env_->GetStringUTFChars(args->nice_name, nullptr);
-        if (process_name == nullptr) {
+        if (UNLIKELY(process_name == nullptr)) {
             clearJniException(env_, "reading process name");
             api_->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
             return;
