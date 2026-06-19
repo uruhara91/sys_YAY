@@ -1,7 +1,6 @@
-id=ih8SecureLock
-name=ih8SecureLock
-version=v8
-versionCode=8
-author=j-hc
-description=Prevent apps from blocking and listening to your screenshots with Zygisk
-updateJson=https://raw.githubusercontent.com/j-hc/ih8SecureLock/master/update.json
+id=systemui_media_fix
+name=SystemUI MediaMetadata NPE Fix
+version=v0.1.0
+versionCode=1
+author=uruhara91
+description=Zygisk-only workaround for the null MediaMetadata crash in TranSystemUI on Infinix X6815B firmware 231020V486.
