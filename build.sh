@@ -3,9 +3,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NDK_ROOT="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+MODULE_PROP="$ROOT/module/module.prop"
+VERSION="$(sed -n 's/^version=//p' "$MODULE_PROP" | head -n 1)"
 
 if [[ -z "$NDK_ROOT" ]]; then
   echo "Set ANDROID_NDK_HOME or ANDROID_NDK_ROOT." >&2
+  exit 1
+fi
+if [[ -z "$VERSION" ]]; then
+  echo "Could not read version from $MODULE_PROP" >&2
   exit 1
 fi
 
@@ -25,7 +31,7 @@ cp "$ROOT/zygisk/libs/arm64-v8a/libsystemui_media_fix.so" \
 cp "$ROOT/zygisk/libs/armeabi-v7a/libsystemui_media_fix.so" \
    "$ROOT/module/zygisk/armeabi-v7a.so"
 
-OUTPUT="$ROOT/dist/SystemUI-Media-Fix-v0.1.0.zip"
+OUTPUT="$ROOT/dist/SystemUI-Media-Fix-${VERSION}.zip"
 rm -f "$OUTPUT"
 (
   cd "$ROOT/module"
