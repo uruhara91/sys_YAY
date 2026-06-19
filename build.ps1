@@ -48,7 +48,7 @@ foreach ($Abi in $Libraries.Keys) {
 }
 
 New-Item $OutputDir -ItemType Directory -Force | Out-Null
-$ZipPath = Join-Path $OutputDir 'SystemUI-Media-Fix-v0.1.0.zip'
+$ZipPath = Join-Path $OutputDir 'SystemUI-Media-Fix-v0.2.0.zip'
 Remove-Item $ZipPath -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $ModuleDir '*') -DestinationPath $ZipPath -CompressionLevel Optimal
 
