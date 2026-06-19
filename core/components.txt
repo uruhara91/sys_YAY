@@ -5,7 +5,6 @@ com.android.vending/com.google.android.finsky.systemupdateactivity.SystemUpdateA
 com.google.android.apps.maps/androidx.work.impl.diagnostics.DiagnosticsReceiver
 com.google.android.apps.messaging/androidx.work.impl.diagnostics.DiagnosticsReceiver
 com.google.android.apps.messaging/com.google.android.apps.messaging.diagnostics.ui.DiagnosticsActivity
-com.google.android.apps.messaging/com.google.android.ims.service.JibeService
 com.google.android.apps.youtube.music/androidx.work.impl.diagnostics.DiagnosticsReceiver
 com.google.android.apps.youtube.music/com.google.android.gms.measurement.AppMeasurementJobService
 com.google.android.apps.youtube.music/com.google.android.gms.measurement.AppMeasurementReceiver
