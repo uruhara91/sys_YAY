@@ -28,7 +28,6 @@ jobs:
 
       - name: Install Android NDK
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "ndk;${NDK_VERSION}"
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
@@ -38,6 +37,6 @@ jobs:
       - name: Upload flashable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: SystemUI-Media-Fix-v0.1.0
-          path: dist/SystemUI-Media-Fix-v0.1.0.zip
+          name: SystemUI-Media-Fix-v0.2.0
+          path: dist/SystemUI-Media-Fix-v0.2.0.zip
           if-no-files-found: error
