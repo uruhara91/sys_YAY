@@ -1,6 +1,6 @@
 id=systemui_media_fix
 name=SystemUI MediaMetadata NPE Fix
-version=v0.2.0
-versionCode=2
+version=v0.3.0
+versionCode=3
 author=uruhara91
-description=Targeted Zygisk workaround for the null MediaMetadata crash in TranSystemUI 12.0.2.187 on Infinix X6815B firmware 231020V486.
+description=Optimized targeted Zygisk workaround for the null MediaMetadata crash in TranSystemUI 12.0.2.187 on Infinix X6815B firmware 231020V486.
