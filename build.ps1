@@ -7,8 +7,15 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ZygiskDir = Join-Path $Root 'zygisk'
 $ModuleDir = Join-Path $Root 'module'
+$ModuleProp = Join-Path $ModuleDir 'module.prop'
 $OutputDir = Join-Path $Root 'dist'
 $ModuleZygiskDir = Join-Path $ModuleDir 'zygisk'
+
+$VersionLine = Get-Content $ModuleProp | Where-Object { $_ -like 'version=*' } | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($VersionLine)) {
+    throw "Could not read version from $ModuleProp"
+}
+$Version = $VersionLine.Substring('version='.Length).Trim()
 
 if ([string]::IsNullOrWhiteSpace($NdkPath)) {
     $NdkPath = $env:ANDROID_NDK_ROOT
@@ -48,7 +55,7 @@ foreach ($Abi in $Libraries.Keys) {
 }
 
 New-Item $OutputDir -ItemType Directory -Force | Out-Null
-$ZipPath = Join-Path $OutputDir 'SystemUI-Media-Fix-v0.2.0.zip'
+$ZipPath = Join-Path $OutputDir "SystemUI-Media-Fix-$Version.zip"
 Remove-Item $ZipPath -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $ModuleDir '*') -DestinationPath $ZipPath -CompressionLevel Optimal
 
