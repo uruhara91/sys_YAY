@@ -1,6 +1,6 @@
 # SystemUI MediaMetadata NPE Fix
 
-Experimental Zygisk-only workaround for this TranSystemUI crash:
+Targeted Zygisk-only workaround for this TranSystemUI crash:
 
 ```text
 FATAL EXCEPTION: SysUiBg
@@ -13,24 +13,41 @@ java.lang.NullPointerException
 
 - Device: Infinix X6815B
 - Android: 12 / API 31
-- ABIs packaged: arm64-v8a and armeabi-v7a
+- SystemUI: 12.0.2.187 (`versionCode=202309220`)
 - Firmware fingerprint: `Infinix/X6815B-OP/Infinix-X6815B:12/SP1A.210812.016/231020V486:user/release-keys`
 - SystemUI APK: `/system_ext/priv-app/TranSystemUI/TranSystemUI.apk`
+- ABIs packaged: arm64-v8a and armeabi-v7a
 
-Both the installer and native library refuse to hook a different SDK or fingerprint.
+The installer and native library refuse to hook a different SDK or firmware fingerprint. The installer additionally validates the exact SystemUI version.
+
+## Verified runtime
+
+The fix has been verified on the target device with:
+
+```text
+FolkPatch + ZygiskNext
+```
+
+Musicolet, MiXplorer media playback, and closing the YouTube miniplayer no longer restart SystemUI.
 
 ## How it works
 
-The module only remains loaded in `com.android.systemui`. It hooks the native
-`IPCThreadState::transact` Binder path and watches
-`android.media.session.ISessionController.getMetadata`.
+The module remains loaded only in `com.android.systemui`. Other processes request `DLCLOSE_MODULE_LIBRARY` immediately.
 
-When a media session returns nullable `MediaMetadata` as `null`, the module
-replaces that reply with a platform-generated empty `MediaMetadata` Parcel
-before TranSystemUI reads it. This prevents the vendor's missing null-check from
-terminating SystemUI.
+It hooks the native `IPCThreadState::transact` Binder path and watches only validated `android.media.session.ISessionController.getMetadata` calls. When the media session returns nullable `MediaMetadata` as `null`, the module replaces that reply with a platform-generated empty `MediaMetadata` Parcel before TranSystemUI reads it.
 
-There is no LSPosed, LSPlant, Java method hook, or modified SystemUI APK.
+There is no LSPosed, LSPlant, Java method hook, modified SystemUI APK, companion daemon, or system overlay.
+
+## v0.3.0 optimization
+
+- Compile-time Android 12 Binder offsets for the fingerprint-locked target.
+- Fast transaction-code rejection before descriptor parsing.
+- Bounds, descriptor, terminator, reply-header, and generated-Parcel validation.
+- Process-lifetime fixed buffer instead of `std::vector`.
+- Replacement logging only once per SystemUI process.
+- One-time JNI work during SystemUI startup; no JNI in the Binder hot path.
+- Thin LTO, section garbage collection, identical-code folding, hidden visibility, RELRO, immediate binding, stack protection, and fortified libc calls.
+- Build artifact version is derived from `module/module.prop`.
 
 ## Build on Windows PowerShell
 
@@ -50,12 +67,12 @@ Or pass the path directly:
 The flashable ZIP is written to:
 
 ```text
-dist/SystemUI-Media-Fix-v0.1.0.zip
+dist/SystemUI-Media-Fix-v0.3.0.zip
 ```
 
-## Install and test
+## Test
 
-Flash the ZIP from Magisk, reboot, then capture focused logs:
+After flashing and rebooting:
 
 ```powershell
 .\adb logcat -c
@@ -69,36 +86,33 @@ SystemUIMediaFix: Prepared empty MediaMetadata reply
 SystemUIMediaFix: Hook installed
 ```
 
-When the bad nullable response occurs:
+The first repaired response in each SystemUI process logs:
 
 ```text
 SystemUIMediaFix: Replaced null MediaMetadata Binder reply
 ```
 
-Test Musicolet, MiXplorer, and closing the YouTube miniplayer separately.
-
 ## Recovery
 
-If SystemUI becomes unstable, disable the module from ADB and reboot:
+If SystemUI becomes unstable, disable the module and reboot:
 
 ```powershell
 .\adb shell su -c 'touch /data/adb/modules/systemui_media_fix/disable'
 .\adb reboot
 ```
 
-It can then be removed normally from the Magisk app.
+It can then be removed normally from the root manager.
 
 ## PowerShell note
 
-A pipe after `adb shell` is handled by Windows PowerShell, so GNU `grep` is not
-available there. Use either:
+Use PowerShell's own filtering:
 
 ```powershell
 .\adb shell dumpsys package com.android.systemui |
     Select-String 'versionName|versionCode'
 ```
 
-or execute grep inside Android's shell:
+Or execute grep inside Android's shell:
 
 ```powershell
 .\adb shell "dumpsys package com.android.systemui | grep -E 'versionName|versionCode'"
