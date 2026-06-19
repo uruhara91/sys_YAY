@@ -1,94 +1,80 @@
 #include "binder.hpp"
 
 #include <android/log.h>
-#include <asm-generic/fcntl.h>
-#include <errno.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/sendfile.h>
-#include <sys/stat.h>
 #include <sys/sysmacros.h>
-#include <unistd.h>
 
-#define LOGD(fmt, ...) \
-    __android_log_print(ANDROID_LOG_DEBUG, "ih8SecureLock", "[%d] " fmt, __LINE__, ##__VA_ARGS__)
+#define LOGE(fmt, ...) \
+    __android_log_print(ANDROID_LOG_ERROR, "SystemUIMediaFix", "[%d] " fmt, __LINE__, ##__VA_ARGS__)
 
-bool getMapping(const char* lib_name, ino_t* inode, dev_t* dev) {
-    FILE* fp = fopen("/proc/self/maps", "r");
-    if (!fp) return false;
-    char mapbuf[256], flags[8];
-    int lib_name_len = strlen(lib_name);
-    while (fgets(mapbuf, sizeof(mapbuf), fp)) {
-        unsigned int dev_major, dev_minor;
-        int cur = 0;
-        sscanf(mapbuf, "%*s %s %*x %x:%x %lu %*s%n", flags, &dev_major, &dev_minor, inode, &cur);
-        if (cur < lib_name_len) continue;
-        if (memcmp(&mapbuf[cur - lib_name_len], lib_name, lib_name_len) == 0 && flags[2] == 'x') {
-            *dev = makedev(dev_major, dev_minor);
-            fclose(fp);
-            return true;
+bool getMapping(const char* library_name, ino_t* inode, dev_t* device) {
+    if (library_name == nullptr || inode == nullptr || device == nullptr) return false;
+
+    FILE* maps = fopen("/proc/self/maps", "r");
+    if (maps == nullptr) return false;
+
+    char line[512] = {};
+    char permissions[8] = {};
+    const size_t library_name_length = strlen(library_name);
+
+    while (fgets(line, sizeof(line), maps) != nullptr) {
+        unsigned int device_major = 0;
+        unsigned int device_minor = 0;
+        unsigned long parsed_inode = 0;
+        int path_offset = 0;
+
+        const int matched = sscanf(line, "%*s %7s %*x %x:%x %lu %*s%n", permissions,
+                                   &device_major, &device_minor, &parsed_inode, &path_offset);
+        if (matched < 4 || path_offset <= 0 || permissions[2] != 'x') continue;
+
+        const size_t line_length = strlen(line);
+        if (line_length < library_name_length) continue;
+
+        char* newline = strchr(line, '\n');
+        if (newline != nullptr) *newline = '\0';
+        const size_t trimmed_length = strlen(line);
+        if (trimmed_length < library_name_length) continue;
+
+        if (memcmp(line + trimmed_length - library_name_length, library_name,
+                   library_name_length) != 0) {
+            continue;
         }
+
+        *inode = static_cast<ino_t>(parsed_inode);
+        *device = makedev(device_major, device_minor);
+        fclose(maps);
+        return true;
     }
-    fclose(fp);
+
+    fclose(maps);
     return false;
 }
 
-uint32_t getStaticIntFieldJni(JNIEnv* env, const char* cls_name, const char* field_name) {
-    jclass cls = env->FindClass(cls_name);
-    if (cls == nullptr) {
+uint32_t getStaticIntFieldJni(JNIEnv* env, const char* class_name, const char* field_name) {
+    jclass target_class = env->FindClass(class_name);
+    if (target_class == nullptr) {
         env->ExceptionClear();
-        LOGD("ERROR getStaticIntFieldJni: Could not get class '%s'", cls_name);
+        LOGE("Could not find class %s", class_name);
         return 0;
     }
-    jfieldID field = env->GetStaticFieldID(cls, field_name, "I");
+
+    jfieldID field = env->GetStaticFieldID(target_class, field_name, "I");
     if (field == nullptr) {
         env->ExceptionClear();
-        LOGD("ERROR getStaticIntFieldJni: Could not get field %s.%s", cls_name, field_name);
+        LOGE("Could not find field %s.%s", class_name, field_name);
+        env->DeleteLocalRef(target_class);
         return 0;
     }
-    jint val = env->GetStaticIntField(cls, field);
-    return val;
-}
 
-void companionSendFile(const char* path, int remote_fd) {
-    off_t size = 0;
-    int fd = open(path, O_RDONLY);
-    if (fd == -1) {
-        LOGD("ERROR open: %s", strerror(errno));
-        goto defer;
+    const jint value = env->GetStaticIntField(target_class, field);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(target_class);
+        LOGE("Could not read field %s.%s", class_name, field_name);
+        return 0;
     }
 
-    struct stat st;
-    if (fstat(fd, &st) == -1) {
-        LOGD("ERROR fstat: %s", strerror(errno));
-        goto defer;
-    }
-    size = st.st_size;
-
-defer:
-    if (write(remote_fd, &size, sizeof(size)) < 0) {
-        LOGD("ERROR write: %s", strerror(errno));
-        size = 0;
-    }
-    if (fd > 0) {
-        if (size > 0 && sendfile(remote_fd, fd, NULL, size) < 0) {
-            LOGD("ERROR sendfile: %s", strerror(errno));
-        }
-        close(fd);
-    }
-}
-
-bool readFullFromFd(int fd, void* buf, off_t size) {
-    off_t size_read = 0;
-    while (size_read < size) {
-        ssize_t ret = read(fd, (char*)buf + size_read, size - size_read);
-        if (ret < 0) {
-            LOGD("ERROR read: %s", strerror(errno));
-            return false;
-        } else {
-            size_read += ret;
-        }
-    }
-    return true;
+    env->DeleteLocalRef(target_class);
+    return static_cast<uint32_t>(value);
 }
