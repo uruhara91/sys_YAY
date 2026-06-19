@@ -6,6 +6,7 @@ on:
     paths:
       - 'zygisk/**'
       - 'module/**'
+      - 'ci/**'
       - 'build.sh'
       - '.github/workflows/build-systemui-fix.yml'
   workflow_dispatch:
@@ -34,9 +35,12 @@ jobs:
       - name: Build module
         run: bash build.sh
 
+      - name: Verify ELF hardening and exports
+        run: bash ci/verify-elf.sh
+
       - name: Upload flashable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: SystemUI-Media-Fix-v0.3.0
-          path: dist/SystemUI-Media-Fix-v0.3.0.zip
+          name: SystemUI-Media-Fix-v0.4.0
+          path: dist/SystemUI-Media-Fix-v0.4.0.zip
           if-no-files-found: error
