@@ -11,12 +11,17 @@
 #include "zygisk.hpp"
 
 #define LOGI(fmt, ...) \
-    __android_log_print(ANDROID_LOG_INFO, "SystemUIMediaFix", "[%d] " fmt, __LINE__, ##__VA_ARGS__)
+    __android_log_print(ANDROID_LOG_INFO, "SystemUIMediaFix", "[%d] " fmt, \
+                        __LINE__ __VA_OPT__(,) __VA_ARGS__)
 #define LOGE(fmt, ...) \
-    __android_log_print(ANDROID_LOG_ERROR, "SystemUIMediaFix", "[%d] " fmt, __LINE__, ##__VA_ARGS__)
+    __android_log_print(ANDROID_LOG_ERROR, "SystemUIMediaFix", "[%d] " fmt, \
+                        __LINE__ __VA_OPT__(,) __VA_ARGS__)
 
 #define LIKELY(value) __builtin_expect(!!(value), 1)
 #define UNLIKELY(value) __builtin_expect(!!(value), 0)
+#define HOT __attribute__((hot))
+#define COLD __attribute__((cold, noinline))
+#define ALWAYS_INLINE inline __attribute__((always_inline))
 
 namespace {
 
@@ -30,8 +35,8 @@ constexpr size_t kSessionControllerDescriptorLength =
     (sizeof(kSessionControllerDescriptor) / sizeof(kSessionControllerDescriptor[0])) - 1;
 
 // Android 12 native Binder request header: strict-mode policy, work-source UID,
-// and vendor header. The target is fingerprint-locked, so keeping this constant
-// removes a branch from every matching transaction.
+// and vendor header. This is intentionally compile-time because the module is
+// fingerprint-locked to one final firmware.
 constexpr size_t kBinderHeaderLength = 3 * sizeof(uint32_t);
 constexpr size_t kDescriptorOffset = kBinderHeaderLength + sizeof(int32_t);
 constexpr size_t kDescriptorStorageBytes =
@@ -39,28 +44,38 @@ constexpr size_t kDescriptorStorageBytes =
 constexpr size_t kMinimumMetadataRequestSize =
     kDescriptorOffset + kDescriptorStorageBytes;
 constexpr size_t kNullReplySize = 2 * sizeof(int32_t);
-constexpr size_t kMaximumGeneratedReplySize = 64 * 1024;
+constexpr size_t kMaximumGeneratedReplySize = 4 * 1024;
 
 using TransactFn = int (*)(void*, int32_t, uint32_t, void*, void*, uint32_t);
 using ParcelSetDataFn = int32_t (*)(void*, const uint8_t*, size_t);
 using ParcelSetDataPositionFn = void (*)(const void*, size_t);
 
+enum InitState : uint32_t {
+    kInitNotStarted = 0,
+    kInitRunning = 1,
+    kInitReady = 2,
+    kInitFailed = 3,
+};
+
+uint32_t g_init_state = kInitNotStarted;
 uint32_t g_get_metadata_code = 0;
 TransactFn g_transact_original = nullptr;
 ParcelSetDataFn g_parcel_set_data = nullptr;
 ParcelSetDataPositionFn g_parcel_set_data_position = nullptr;
+void* g_libbinder_handle = nullptr;
 uint8_t* g_empty_metadata_reply = nullptr;
 size_t g_empty_metadata_reply_size = 0;
 uint32_t g_patch_log_once = 0;
+uint32_t g_set_data_error_log_once = 0;
 
-bool clearJniException(JNIEnv* env, const char* operation) {
+COLD bool clearJniException(JNIEnv* env, const char* operation) {
     if (!env->ExceptionCheck()) return false;
     LOGE("JNI exception while %s", operation);
     env->ExceptionClear();
     return true;
 }
 
-bool buildEmptyMetadataReply(JNIEnv* env) {
+COLD bool buildEmptyMetadataReply(JNIEnv* env) {
     if (env->PushLocalFrame(16) < 0) {
         clearJniException(env, "creating local JNI frame");
         return false;
@@ -165,13 +180,15 @@ bool buildEmptyMetadataReply(JNIEnv* env) {
         return finish(false);
     }
 
+    // Intentional process-lifetime allocation. The hook reads this immutable
+    // buffer concurrently and Parcel::setData copies it into each reply.
     g_empty_metadata_reply = reply;
     g_empty_metadata_reply_size = static_cast<size_t>(length);
     LOGI("Prepared empty MediaMetadata reply (%zu bytes)", g_empty_metadata_reply_size);
     return finish(true);
 }
 
-void* resolveAnySymbol(void* handle, const char* const* names, size_t count) {
+COLD void* resolveAnySymbol(void* handle, const char* const* names, size_t count) {
     for (size_t i = 0; i < count; ++i) {
         if (void* symbol = dlsym(RTLD_DEFAULT, names[i]); symbol != nullptr) {
             return symbol;
@@ -186,10 +203,20 @@ void* resolveAnySymbol(void* handle, const char* const* names, size_t count) {
     return nullptr;
 }
 
-bool resolveParcelFunctions() {
-    void* handle = dlopen("libbinder.so", RTLD_NOW | RTLD_LOCAL);
-    if (handle == nullptr) {
-        LOGE("Could not open libbinder.so: %s", dlerror());
+COLD bool resolveParcelFunctions() {
+    if (g_libbinder_handle != nullptr) return true;
+
+#ifdef RTLD_NOLOAD
+    constexpr int kDlopenFlags = RTLD_NOW | RTLD_LOCAL | RTLD_NOLOAD;
+#else
+    constexpr int kDlopenFlags = RTLD_NOW | RTLD_LOCAL;
+#endif
+
+    // Keep one process-lifetime reference so the resolved native pointers can
+    // never outlive the library mapping, even under a nonstandard Zygisk loader.
+    g_libbinder_handle = dlopen("libbinder.so", kDlopenFlags);
+    if (g_libbinder_handle == nullptr) {
+        LOGE("Could not reference loaded libbinder.so: %s", dlerror());
         return false;
     }
 
@@ -214,11 +241,11 @@ bool resolveParcelFunctions() {
 #endif
 
     g_parcel_set_data = reinterpret_cast<ParcelSetDataFn>(resolveAnySymbol(
-        handle, set_data_symbols, sizeof(set_data_symbols) / sizeof(set_data_symbols[0])));
+        g_libbinder_handle, set_data_symbols,
+        sizeof(set_data_symbols) / sizeof(set_data_symbols[0])));
     g_parcel_set_data_position = reinterpret_cast<ParcelSetDataPositionFn>(resolveAnySymbol(
-        handle, set_position_symbols,
+        g_libbinder_handle, set_position_symbols,
         sizeof(set_position_symbols) / sizeof(set_position_symbols[0])));
-    dlclose(handle);
 
     if (g_parcel_set_data == nullptr || g_parcel_set_data_position == nullptr) {
         LOGE("Could not resolve Parcel::setData/setDataPosition");
@@ -227,7 +254,7 @@ bool resolveParcelFunctions() {
     return true;
 }
 
-inline bool isGetMetadataRequest(const PParcel* request, uint32_t code) {
+ALWAYS_INLINE bool isGetMetadataRequest(const PParcel* request, uint32_t code) {
     if (LIKELY(code != g_get_metadata_code)) return false;
     if (UNLIKELY(request == nullptr || request->data == nullptr ||
                  request->data_size < kMinimumMetadataRequestSize)) {
@@ -255,7 +282,7 @@ inline bool isGetMetadataRequest(const PParcel* request, uint32_t code) {
     return terminator == u'\0';
 }
 
-inline bool isNullMetadataReply(const PParcel* reply) {
+ALWAYS_INLINE bool isNullMetadataReply(const PParcel* reply) {
     if (UNLIKELY(reply == nullptr || reply->data == nullptr ||
                  reply->data_size != kNullReplySize)) {
         return false;
@@ -269,57 +296,51 @@ inline bool isNullMetadataReply(const PParcel* reply) {
     return exception_code == 0 && presence_marker == 0;
 }
 
-int transactHook(void* self, int32_t handle, uint32_t code, void* request,
-                 void* reply, uint32_t flags) {
+HOT int transactHook(void* self, int32_t handle, uint32_t code, void* request,
+                     void* reply, uint32_t flags) {
     const bool should_patch =
         UNLIKELY(isGetMetadataRequest(static_cast<PParcel*>(request), code));
     const int result = g_transact_original(self, handle, code, request, reply, flags);
 
     if (LIKELY(!should_patch || result != 0)) return result;
     if (LIKELY(!isNullMetadataReply(static_cast<PParcel*>(reply)))) return result;
-    if (UNLIKELY(g_empty_metadata_reply == nullptr || g_empty_metadata_reply_size == 0)) {
-        return result;
-    }
 
     const int32_t set_data_result = g_parcel_set_data(
         reply, g_empty_metadata_reply, g_empty_metadata_reply_size);
     if (UNLIKELY(set_data_result != 0)) {
-        LOGE("Parcel::setData failed: %d", set_data_result);
+        if (__atomic_exchange_n(&g_set_data_error_log_once, 1u,
+                                __ATOMIC_RELAXED) == 0) {
+            LOGE("Parcel::setData failed: %d", set_data_result);
+        }
         return result;
     }
 
     g_parcel_set_data_position(reply, 0);
 
-    // Keep release diagnostics while avoiding repeated log writes for players
-    // that transiently return null metadata many times.
-    if (__atomic_exchange_n(&g_patch_log_once, 1u, __ATOMIC_RELAXED) == 0) {
+    // The load avoids a locked read-modify-write after the first repair.
+    if (UNLIKELY(__atomic_load_n(&g_patch_log_once, __ATOMIC_RELAXED) == 0) &&
+        __atomic_exchange_n(&g_patch_log_once, 1u, __ATOMIC_RELAXED) == 0) {
         LOGI("Replaced null MediaMetadata Binder reply");
     }
     return result;
 }
 
-bool hookBinder(zygisk::Api* api) {
-    ino_t inode = 0;
-    dev_t device = 0;
-    if (!getMapping("libbinder.so", &inode, &device)) {
-        LOGE("Could not locate libbinder.so mapping");
-        return false;
-    }
-
+COLD bool hookBinder(zygisk::Api* api, ino_t inode, dev_t device) {
     api->pltHookRegister(
         device, inode,
         "_ZN7android14IPCThreadState8transactEijRKNS_6ParcelEPS1_j",
         reinterpret_cast<void*>(&transactHook),
         reinterpret_cast<void**>(&g_transact_original));
 
-    if (!api->pltHookCommit() || g_transact_original == nullptr) {
-        LOGE("Could not install IPCThreadState::transact hook");
+    if (!api->pltHookCommit() || g_transact_original == nullptr ||
+        g_transact_original == transactHook) {
+        LOGE("Could not install a valid IPCThreadState::transact hook");
         return false;
     }
     return true;
 }
 
-bool isSupportedBuild() {
+COLD bool isSupportedBuild() {
     if (android_get_device_api_level() != kSupportedSdk) return false;
 
     char fingerprint[PROP_VALUE_MAX] = {};
@@ -327,23 +348,45 @@ bool isSupportedBuild() {
     return strcmp(fingerprint, kSupportedFingerprint) == 0;
 }
 
-bool run(zygisk::Api* api, JNIEnv* env) {
+COLD bool run(zygisk::Api* api, JNIEnv* env) {
+    uint32_t expected = kInitNotStarted;
+    if (!__atomic_compare_exchange_n(&g_init_state, &expected, kInitRunning,
+                                     false, __ATOMIC_ACQ_REL,
+                                     __ATOMIC_ACQUIRE)) {
+        if (expected == kInitReady) return true;
+        LOGE("Refusing duplicate initialization in state %u", expected);
+        return false;
+    }
+
+    auto fail = []() {
+        __atomic_store_n(&g_init_state, kInitFailed, __ATOMIC_RELEASE);
+        return false;
+    };
+
     if (!isSupportedBuild()) {
         LOGE("Unsupported build; refusing to hook");
-        return false;
+        return fail();
+    }
+
+    ino_t libbinder_inode = 0;
+    dev_t libbinder_device = 0;
+    if (!getMapping("libbinder.so", &libbinder_inode, &libbinder_device)) {
+        LOGE("Could not locate loaded libbinder.so mapping");
+        return fail();
     }
 
     g_get_metadata_code = getStaticIntFieldJni(
         env, STUB("android/media/session/ISessionController"), TRSCTN("getMetadata"));
     if (g_get_metadata_code == 0) {
         LOGE("Could not resolve ISessionController.TRANSACTION_getMetadata");
-        return false;
+        return fail();
     }
 
-    if (!buildEmptyMetadataReply(env)) return false;
-    if (!resolveParcelFunctions()) return false;
-    if (!hookBinder(api)) return false;
+    if (!buildEmptyMetadataReply(env)) return fail();
+    if (!resolveParcelFunctions()) return fail();
+    if (!hookBinder(api, libbinder_inode, libbinder_device)) return fail();
 
+    __atomic_store_n(&g_init_state, kInitReady, __ATOMIC_RELEASE);
     LOGI("Hook installed; transaction code=%u", g_get_metadata_code);
     return true;
 }
