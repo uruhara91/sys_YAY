@@ -1,5 +1,8 @@
 # SystemUI MediaMetadata NPE Fix
 
+This project moved to:
+**[SystemUI-MediaMetadata-NPE-Fix](https://github.com/uruhara91/SystemUI-MediaMetadata-NPE-Fix)**
+
 Targeted Zygisk-only workaround for this TranSystemUI crash:
 
 ```text
