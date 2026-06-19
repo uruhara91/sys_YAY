@@ -1,2 +1,2 @@
-Credits & Acknowledgements
-[Net Switch](https://github.com/Rem01Gaming/net-switch)
+SystemUI Media Fix
+For X6815B-H772AB-S-OP-231020V486
