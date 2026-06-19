@@ -5,13 +5,28 @@ LOCAL_MODULE := systemui_media_fix
 LOCAL_SRC_FILES := module.cpp binder.cpp
 LOCAL_CPPFLAGS := \
     -std=c++20 \
-    -Wall \
-    -Wextra \
-    -Wpedantic \
+    -O2 \
+    -flto=thin \
+    -DNDEBUG \
+    -D_FORTIFY_SOURCE=2 \
+    -fno-exceptions \
+    -fno-rtti \
+    -fno-semantic-interposition \
+    -fstack-protector-strong \
     -fvisibility=hidden \
     -fvisibility-inlines-hidden \
     -ffunction-sections \
-    -fdata-sections
-LOCAL_LDFLAGS := -Wl,--gc-sections
+    -fdata-sections \
+    -Wall \
+    -Wextra \
+    -Wpedantic
+LOCAL_LDFLAGS := \
+    -flto=thin \
+    -Wl,--gc-sections \
+    -Wl,--icf=safe \
+    -Wl,--as-needed \
+    -Wl,--exclude-libs,ALL \
+    -Wl,-z,relro \
+    -Wl,-z,now
 LOCAL_LDLIBS := -llog -landroid -ldl
 include $(BUILD_SHARED_LIBRARY)
