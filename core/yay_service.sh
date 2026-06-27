@@ -1,6 +1,6 @@
 #!/system/bin/sh
 
-sleep 10
+sleep 5
 
 LOG_DIR="/storage/emulated/0/Yokai/Logs"
 LOG_FILE="/storage/emulated/0/Yokai/Logs/nightly-yokai.logs"
