@@ -103,11 +103,7 @@ com.discord/com.google.android.gms.analytics.AnalyticsService
 com.facebook.katana/com.facebook.analytics2.logger.GooglePlayUploadService
 com.facebook.katana/com.facebook.bugreporter.core.scheduler.AlarmsBroadcastReceiver
 com.facebook.katana/com.facebook.bugreporter.core.scheduler.GCMBugReportService
-com.facebook.katana/com.facebook.errorreporting.lacrima.detector.broadcast.ProtectedLockScreenBroadcastReceiver
-com.facebook.katana/com.facebook.errorreporting.lacrima.detector.broadcast.PublicLockScreenBroadcastReceiver
-com.facebook.katana/com.facebook.errorreporting.lacrima.detector.broadcast.SecureShutdownBootBroadcastReceiver
 com.facebook.katana/com.facebook.googleplay.GooglePlayInstallReferrerReceiver
-com.facebook.katana/com.facebook.mqtt.service.MqttServiceV2
 com.facebook.katana/com.google.android.gms.analytics.AnalyticsJobService
 com.facebook.katana/com.google.android.gms.analytics.AnalyticsReceiver
 com.facebook.katana/com.google.android.gms.analytics.AnalyticsService

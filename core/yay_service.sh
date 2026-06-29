@@ -16,17 +16,6 @@ write() {
 
 echo "Yokai Service Started: $(date)" > "$LOG_FILE"
 
-# === 0.Undervolt ===
-#
-#if [ -f "/proc/eem/EEM_DET_L/eem_offset" ]; then
-#    write "/proc/eem/EEM_DET_L/eem_offset" "-8"
-#    write "/proc/eem/EEM_DET_B/eem_offset" "-6"
-#
-#    echo "Undervolt applied via EEM." >> "$LOG_FILE"
-#else
-#    echo "Undervolt interface not found." >> "$LOG_FILE"
-#fi
-#
 # === 1. I/O SCHEDULER ===
 
 for queue in /sys/block/*/queue; do

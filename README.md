@@ -1,2 +1,1 @@
-Credits & Acknowledgements
-[Net Switch](https://github.com/Rem01Gaming/net-switch)
+For personal use, not tested on other devices.
